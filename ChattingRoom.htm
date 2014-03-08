@@ -1,0 +1,513 @@
+<html>
+<link REL="stylesheet" TYPE="text/css" href="/ccc.css"/>
+<BODY text=#000000 bgColor=#336699 hlink="red">
+<BR/>
+<center style="color:white">
+<a class="bigwhite" href="/ccc.htm" style="color:white">陳鍾誠</a> |
+<a class="bigwhite" href="/ccc.htm#teach" style="color:white">教材</a> |
+<a class="bigwhite" href="/ccc.htm#code" style="color:white">程式</a> |
+<a class="bigwhite" href="/ccc.htm#article" style="color:white">文章</a> | 
+<a class="bigwhite" href="/ccc.htm#web" style="color:white">網站</a> |
+<a class="bigwhite" href="http://blog.yam.com/msg/ccckmit" style="color:white">留言版</a>
+<BR/>
+<BR/>
+<TABLE width="98%" border=0>
+  </tr>
+  <TR style="vertical-align:top" height="400">
+    <TD class=body colspan="6" style="vertical-align:top;padding-left:0.5cm;padding-right:0.5cm">
+<BR/>
+<META http-equiv=Content-Type content="text/html; charset=UTF-8">
+
+<H2>自己動手設計多人聊天室程式 - 使用 C#</H2>
+<BR/>
+<pre>
+// ---------------------------------------------------------------
+// 共有四個程式檔案
+//
+//  程式檔 : ChatLib.cs
+//  程式檔 : ChattingServer.cs
+//  程式檔 : FormChatClient.cs
+//  程式檔 : FormChatClient.Designer.cs
+//
+// 編譯方式 : 
+//    步驟 1 : csc ChattingServer.cs ChatLib.cs
+//             會產生 ChattingServer.exe 檔
+//
+//    步驟 2 : csc FormChatClient.cs FormChatClilent.Designer.cs ChatLib.cs
+//             會產生 FormChatClient.exe 檔
+//     
+// 執行方式 : 
+//    步驟 1 : 執行 ChattingServer.exe
+//    步驟 2 : 執行 FormChatClient.exe
+//    步驟 3 : 執行 FormChatClient.exe
+//
+// 如此，兩個 FormChatClient.exe 的視窗間即可透過本機聊天
+// ---------------------------------------------------------------
+</pre>
+<BR/>
+<pre>
+// ------------------------- ChatLib.cs --------------------------
+using System;
+using System.Net;
+using System.Net.Sockets;
+using System.IO;
+using System.Threading;
+<BR/>
+namespace ChattingRoom
+{
+    public class ChatSetting
+    {
+        public static String serverIp = "192.168.100.172";
+        public static int port = 3766;
+    }
+<BR/>
+    public delegate String StrHandler(String str);
+<BR/>
+    public class ChatSocket
+    {
+        public Socket socket;
+        public NetworkStream stream;
+        public StreamReader reader;
+        public StreamWriter writer;
+        public StrHandler inHandler;
+        public EndPoint remoteEndPoint;
+        public bool isDead = false;
+<BR/>
+        public ChatSocket(Socket s)
+        {
+            socket = s;
+            stream = new NetworkStream(s);
+            reader = new StreamReader(stream);
+            writer = new StreamWriter(stream);
+            remoteEndPoint = socket.RemoteEndPoint;
+        }
+<BR/>
+        public String receive()
+        {
+            return reader.ReadLine();
+        }
+<BR/>
+        public ChatSocket send(String line)
+        {
+            writer.WriteLine(line);
+            writer.Flush();
+            return this;
+        }
+<BR/>
+        public static ChatSocket connect(String ip)
+        {
+            IPEndPoint ipep = new IPEndPoint(IPAddress.Parse(ip), ChatSetting.port);
+<BR/>
+            Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            socket.Connect(ipep);
+            return new ChatSocket(socket);
+        }
+<BR/>
+        public Thread newListener(StrHandler pHandler)
+        {
+            inHandler = pHandler;
+<BR/>
+            Thread listenThread = new Thread(new ThreadStart(listen));
+            listenThread.Start();
+            return listenThread;
+        }
+<BR/>
+        public void listen()
+        {
+            try
+            {
+                while (true)
+                {
+                    String line = receive();
+                    inHandler(line);
+                }
+            }
+            catch (Exception ex)
+            {
+                isDead = true;
+                Console.WriteLine(ex.Message);
+            }
+        }
+    }
+}
+</pre>
+<BR/>
+<pre>
+// ------------------------- ChattingServer.cs -------------------
+using System;
+using System.Net;
+using System.Net.Sockets;
+using System.IO;
+using System.Threading;
+using System.Collections.Generic;
+<BR/>
+namespace ChattingRoom
+{
+    public class ChatServer
+    {
+        List&lt;ChatSocket&gt; clientList = new List&lt;ChatSocket&gt;();
+<BR/>
+        public static void Main(String[] args)
+        {
+            ChatServer chatServer = new ChatServer();
+            chatServer.run();
+        }
+<BR/>
+        public void run()
+        {
+            IPEndPoint ipep = new IPEndPoint(IPAddress.Any, ChatSetting.port);
+<BR/>
+            Socket newsock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+<BR/>
+            newsock.Bind(ipep);
+            newsock.Listen(10);
+<BR/>
+            while (true)
+            {
+                Socket socket = newsock.Accept();
+                Console.WriteLine("接受一個新連線!");
+                ChatSocket client = new ChatSocket(socket);
+                try
+                {
+                    clientList.Add(client);
+                    client.newListener(processMsgComeIn);
+                }
+                catch
+                {
+                }
+//                clientList.Remove(client);
+            }
+            //	  newsock.Close();
+        }
+<BR/>
+        public String processMsgComeIn(String msg)
+        {
+            Console.WriteLine("收到訊息："+msg);
+            broadCast(msg);
+            return "OK";
+        }
+<BR/>
+        public void broadCast(String msg)
+        {
+            Console.WriteLine("廣播訊息給 " + msg+" 線上使用者共"+clientList.Count+"個人!");
+            foreach (ChatSocket client in clientList)
+            {
+				if (!client.isDead) {
+					Console.WriteLine("Send to "+client.remoteEndPoint.ToString()+":"+msg);
+					client.send(msg);
+				}
+            }
+        }
+    }
+}
+</pre>
+<BR/>
+<pre>
+// ------------------------- FormChatClient.cs -------------------
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Text;
+using System.Windows.Forms;
+<BR/>
+namespace ChattingRoom
+{
+    public partial class FormChatClient : Form
+    {
+        ChatSocket client;
+        StrHandler msgHandler;
+<BR/>
+        public FormChatClient()
+        {
+            InitializeComponent();
+<BR/>
+            msgHandler = this.addMsg;
+        }
+<BR/>
+        private void buttonSend_Click(object sender, EventArgs e)
+        {
+            sendMsg();
+        }
+		
+		private void textBoxMsg_KeyPress(object sender, KeyPressEventArgs e)
+		{
+			if (e.KeyChar == '\r')
+				sendMsg();
+		}
+<BR/>
+        public String user() {
+            return textBoxUser.Text.Trim();
+        }
+<BR/>
+        public String msg() {
+            return textBoxMsg.Text;
+        }
+<BR/>
+        public void sendMsg()
+        {
+            if (user().Length == 0)
+            {
+                MessageBox.Show("請輸入使用者名稱!");
+                return;
+            }
+            if (client == null) {
+                client = ChatSocket.connect(ChatSetting.serverIp);
+                client.newListener(processMsgComeIn);
+                client.send(user() + " : 新使用者進入!");
+                textBoxUser.Enabled = false;
+            }
+            if (msg().Length &gt; 0) {
+                client.send(user()+" : "+msg());
+				textBoxMsg.Text = "";
+			}
+        }
+<BR/>
+        public String processMsgComeIn(String msg)
+        {
+            this.Invoke(msgHandler, new Object[] { msg });
+            return "OK";
+        }
+<BR/>
+        public String addMsg(String msg)
+        {
+            richTextBoxBoard.AppendText(msg + "\n");
+            return "OK";
+        }
+    }
+}
+</pre>
+<BR/>
+<pre>
+// ------------------------- FormChatClient.Designer.cs ----------
+namespace ChattingRoom
+{
+    partial class FormChatClient
+    {
+        /// &lt;summary&gt;
+        /// 設計工具所需的變數。
+        /// &lt;/summary&gt;
+        private System.ComponentModel.IContainer components = null;
+<BR/>
+        /// &lt;summary&gt;
+        /// 清除任何使用中的資源。
+        /// &lt;/summary&gt;
+        /// &lt;param name="disposing"&gt;如果應該公開 Managed 資源則為 true，否則為 false。&lt;/param&gt;
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing &amp;&amp; (components != null))
+            {
+                components.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+<BR/>
+        #region Windows Form 設計工具產生的程式碼
+<BR/>
+        /// &lt;summary&gt;
+        /// 此為設計工具支援所需的方法 - 請勿使用程式碼編輯器修改這個方法的內容。
+        ///
+        /// &lt;/summary&gt;
+        private void InitializeComponent()
+        {
+            this.panelInput = new System.Windows.Forms.Panel();
+            this.labelSaid = new System.Windows.Forms.Label();
+            this.textBoxUser = new System.Windows.Forms.TextBox();
+            this.textBoxMsg = new System.Windows.Forms.TextBox();
+            this.buttonSend = new System.Windows.Forms.Button();
+            this.panelPadding1 = new System.Windows.Forms.Panel();
+            this.panelMsg = new System.Windows.Forms.Panel();
+            this.richTextBoxBoard = new System.Windows.Forms.RichTextBox();
+            this.panelInput.SuspendLayout();
+            this.panelMsg.SuspendLayout();
+            this.SuspendLayout();
+            // 
+            // panelInput
+            // 
+            this.panelInput.Controls.Add(this.labelSaid);
+            this.panelInput.Controls.Add(this.textBoxUser);
+            this.panelInput.Controls.Add(this.textBoxMsg);
+            this.panelInput.Controls.Add(this.buttonSend);
+            this.panelInput.Controls.Add(this.panelPadding1);
+            this.panelInput.Dock = System.Windows.Forms.DockStyle.Bottom;
+            this.panelInput.Location = new System.Drawing.Point(0, 283);
+            this.panelInput.Name = "panelInput";
+            this.panelInput.Size = new System.Drawing.Size(494, 64);
+            this.panelInput.TabIndex = 0;
+            // 
+            // labelSaid
+            // 
+            this.labelSaid.AutoSize = true;
+            this.labelSaid.Font = new System.Drawing.Font("DFKai-SB", 15.75F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(136)));
+            this.labelSaid.Location = new System.Drawing.Point(94, 17);
+            this.labelSaid.Name = "labelSaid";
+            this.labelSaid.Size = new System.Drawing.Size(54, 21);
+            this.labelSaid.TabIndex = 4;
+            this.labelSaid.Text = "說：";
+            // 
+            // textBoxUser
+            // 
+            this.textBoxUser.Location = new System.Drawing.Point(3, 17);
+            this.textBoxUser.Name = "textBoxUser";
+            this.textBoxUser.Size = new System.Drawing.Size(88, 22);
+            this.textBoxUser.TabIndex = 3;
+            // 
+            // textBoxMsg
+            // 
+            this.textBoxMsg.Location = new System.Drawing.Point(154, 17);
+            this.textBoxMsg.Name = "textBoxMsg";
+            this.textBoxMsg.Size = new System.Drawing.Size(250, 22);
+            this.textBoxMsg.TabIndex = 2;
+            this.textBoxMsg.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.textBoxMsg_KeyPress);
+            // 
+            // buttonSend
+            // 
+            this.buttonSend.Location = new System.Drawing.Point(410, 14);
+            this.buttonSend.Name = "buttonSend";
+            this.buttonSend.Size = new System.Drawing.Size(81, 28);
+            this.buttonSend.TabIndex = 1;
+            this.buttonSend.Text = "送出";
+            this.buttonSend.UseVisualStyleBackColor = true;
+            this.buttonSend.Click += new System.EventHandler(this.buttonSend_Click);
+            // 
+            // panelPadding1
+            // 
+            this.panelPadding1.Dock = System.Windows.Forms.DockStyle.Bottom;
+            this.panelPadding1.Location = new System.Drawing.Point(0, 48);
+            this.panelPadding1.Name = "panelPadding1";
+            this.panelPadding1.Size = new System.Drawing.Size(494, 16);
+            this.panelPadding1.TabIndex = 0;
+            // 
+            // panelMsg
+            // 
+            this.panelMsg.Controls.Add(this.richTextBoxBoard);
+            this.panelMsg.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.panelMsg.Location = new System.Drawing.Point(0, 0);
+            this.panelMsg.Name = "panelMsg";
+            this.panelMsg.Size = new System.Drawing.Size(494, 283);
+            this.panelMsg.TabIndex = 1;
+            // 
+            // richTextBoxBoard
+            // 
+            this.richTextBoxBoard.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.richTextBoxBoard.Location = new System.Drawing.Point(0, 0);
+            this.richTextBoxBoard.Name = "richTextBoxBoard";
+            this.richTextBoxBoard.Size = new System.Drawing.Size(494, 283);
+            this.richTextBoxBoard.TabIndex = 0;
+            this.richTextBoxBoard.Text = "";
+            // 
+            // FormChatClient
+            // 
+            this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.ClientSize = new System.Drawing.Size(494, 347);
+            this.Controls.Add(this.panelMsg);
+            this.Controls.Add(this.panelInput);
+            this.Name = "FormChatClient";
+            this.Text = "C# 聊天室";
+            this.panelInput.ResumeLayout(false);
+            this.panelInput.PerformLayout();
+            this.panelMsg.ResumeLayout(false);
+            this.ResumeLayout(false);
+<BR/>
+        }
+<BR/>
+        #endregion
+<BR/>
+        private System.Windows.Forms.Panel panelInput;
+        private System.Windows.Forms.Panel panelMsg;
+        private System.Windows.Forms.TextBox textBoxMsg;
+        private System.Windows.Forms.Button buttonSend;
+        private System.Windows.Forms.Panel panelPadding1;
+        private System.Windows.Forms.RichTextBox richTextBoxBoard;
+        private System.Windows.Forms.Label labelSaid;
+        private System.Windows.Forms.TextBox textBoxUser;
+    }
+}
+</pre>
+<BR/>
+<pre>
+using System;
+using System.Collections.Generic;
+using System.Windows.Forms;
+<BR/>
+namespace ChattingRoom
+{
+    static class Program
+    {
+        /// &lt;summary&gt;
+        /// 應用程式的主要進入點。
+        /// &lt;/summary&gt;
+        [STAThread]
+        static void Main()
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new FormChatClient());
+            Application.Exit();
+        }
+    }
+}
+</pre>
+<BR/>
+
+<BR/>
+<BR/>
+    </TD>
+  </TR>
+  <TR>
+    <TD colspan="6">
+<center>
+<BR/>
+<font color="#CCCC33">
+作者：<a style="color:white" href="/ccc/me/index.htm">陳鍾誠</a> E-mail:<a href="mailto:ccc@kmit.edu.tw" style="color:white">ccc@kmit.edu.tw</a>。
+<BR/>
+<!--Creative Commons License-->
+<a rel="license" href="http://creativecommons.org/licenses/by-sa/2.5/tw/"><img alt="Creative Commons License" border="0" src="http://creativecommons.org/images/public/somerights20.png"/></a><br/>
+<BR/>
+本著作係採用<a rel="license" href="http://creativecommons.org/licenses/by-sa/2.5/tw/" style="color:white">創用 CC 「姓名標示─相同方式分享 2.5 台灣版」授權條款</a>釋出。
+<!--/Creative Commons License-->
+<BR/>
+<!--
+<rdf:RDF xmlns="http://web.resource.org/cc/"
+ xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <Work rdf:about="">
+    <license rdf:resource="http://creativecommons.org/licenses/by-sa/2.5/tw/" />
+    <dc:title><?TITLE?></dc:title>
+    <dc:date><?Date?></dc:date>
+    <dc:description>網頁</dc:description>
+    <dc:creator>
+      <Agent>
+        <dc:title>陳鍾誠</dc:title>
+      </Agent>
+    </dc:creator>
+    <dc:rights>
+      <Agent>
+        <dc:title>陳鍾誠</dc:title>
+      </Agent>
+    </dc:rights>
+    <dc:source rdf:resource="http://ccc.kmit.edu.tw" />
+  </Work>
+  <License rdf:about="http://creativecommons.org/licenses/by-sa/2.5/tw/">
+    <permits rdf:resource="http://web.resource.org/cc/Reproduction"/>
+    <permits rdf:resource="http://web.resource.org/cc/Distribution"/>
+    <permits rdf:resource="http://web.resource.org/cc/DerivativeWorks"/>
+    <requires rdf:resource="http://web.resource.org/cc/Notice"/>
+    <requires rdf:resource="http://web.resource.org/cc/Attribution"/>
+    <requires rdf:resource="http://web.resource.org/cc/ShareAlike"/>
+  </License>
+</rdf:RDF>
+-->
+<BR/>
+<a href="/web/course/index.htm" style="color:white">大學課程網</a> | 
+<a href="/web/mobile/index.htm" style="color:white">手機入口網</a>
+</font>
+    </TD>
+  </TR>
+</TABLE>
+</center>
+<BR/><BR/>
+</BODY>
+</HTML>
